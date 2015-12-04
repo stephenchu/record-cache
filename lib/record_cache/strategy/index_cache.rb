@@ -1,14 +1,14 @@
 module RecordCache
   module Strategy
     class IndexCache < Base
-  
+
       # parse the options and return (an array of) instances of this strategy
       def self.parse(base, record_store, options)
         return nil unless options[:index]
         return nil unless base.table_exists?
-        
+
         raise "Index cache '#{options[:index].inspect}' on #{base.name} is redundant as index cache queries are handled by the full table cache." if options[:full_table]
-        raise ":index => #{options[:index].inspect} option cannot be used unless 'id' is present on #{base.name}" unless base.columns_hash['id']
+        raise ":index => #{options[:index].inspect} option cannot be used unless 'id' is present on #{base.name}" unless base.columns_hash['pk']
         [options[:index]].flatten.compact.map do |attribute|
           type = base.columns_hash[attribute.to_s].try(:type)
           raise "No column found for index '#{attribute}' on #{base.name}." unless type
@@ -63,31 +63,31 @@ module RecordCache
         # retrieve the ids from the DB if the result was not fresh
         ids = fetch_ids_from_db(versioned_key, value) unless ids
         # use the IdCache to retrieve the records based on the ids
-        @base.record_cache[:id].send(:fetch_records, ::RecordCache::Query.new({:id => ids}))
+        @base.record_cache[:pk].send(:fetch_records, ::RecordCache::Query.new({:pk => ids}))
       end
 
       private
-  
+
       # ---------------------------- Querying ------------------------------------
-  
+
       # Retrieve the ids from the local cache
       def fetch_ids_from_cache(versioned_key)
         record_store.read(versioned_key)
       end
-  
+
       # retrieve the ids from the database and update the local cache
       def fetch_ids_from_db(versioned_key, value)
         RecordCache::Base.without_record_cache do
           # go straight to SQL result for optimal performance
-          sql = @base.select('id').where(@attribute => value).to_sql
-          ids = []; @base.connection.execute(sql).each{ |row| ids << (row.is_a?(Hash) ? row['id'] : row.first).to_i }
+          sql = @base.select('pk').where(@attribute => value).to_sql
+          ids = []; @base.connection.execute(sql).each{ |row| ids << (row.is_a?(Hash) ? row['pk'] : row.first).to_i }
           record_store.write(versioned_key, ids)
           ids
         end
       end
-  
+
       # ---------------------------- Local Record Changes ---------------------------------
-  
+
       # add one record(id) to the index with the given value
       def add_to_index(value, id)
         renew_version(value.to_i) { |ids| ids << id } if value
@@ -112,9 +112,9 @@ module RecordCache
           record_store.write(versioned_key(key, new_version), ids)
         end
       end
-  
+
       # ------------------------- Utility methods ----------------------------
-  
+
       # log cache hit/miss to debug log
       def log_cache_hit(key, ids)
         RecordCache::Base.logger.debug{ "IndexCache #{ids ? 'hit' : 'miss'} for #{key}: found #{ids ? ids.size : 'no'} ids" }
